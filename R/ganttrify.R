@@ -66,7 +66,8 @@ ganttrify <- function(project,
   if (by_date==FALSE) {
     df <- project %>% 
       dplyr::mutate(start_date = as.numeric(start_date),
-                    end_date = as.numeric(end_date))
+                    end_date = as.numeric(end_date),
+                    contingency_end = as.numeric(end_date))
     
     if (sum(is.na(df$start_date))==nrow(df)) {
       stop("Make sure that the input data are properly formatted and/or you have selected the right paramaters.")
@@ -76,22 +77,26 @@ ganttrify <- function(project,
     
     df_yearmon <- df %>%
       dplyr::mutate(start_date_yearmon = start_yearmon+(1/12)*start_date,
-                    end_date_yearmon = start_yearmon+(1/12)*zoo::as.yearmon(end_date)) %>%
+                    end_date_yearmon = start_yearmon+(1/12)*zoo::as.yearmon(end_date),
+                    contingency_end_yearmon = start_yearmon+(1/12)*zoo::as.yearmon(contingency_end)) %>%
       dplyr::transmute(wp = as.character(wp),
                        activity = as.character(activity),
                        start_date = zoo::as.Date(start_date_yearmon, frac = 0),
-                       end_date = zoo::as.Date(end_date_yearmon, frac = 1))
+                       end_date = zoo::as.Date(end_date_yearmon, frac = 1),
+                       contingency_end = zoo::as.Date(contingency_end_yearmon, frac = 1))
   } else {
     if (exact_date==TRUE) {
       #do nothing
     } else {
       df_yearmon <- project %>% 
         dplyr::mutate(start_date_yearmon = zoo::as.yearmon(start_date),
-                      end_date_yearmon = zoo::as.yearmon(end_date)) %>% 
+                      end_date_yearmon = zoo::as.yearmon(end_date),
+                      contingency_end_yearmon = zoo::as.yearmon(end_date)) %>% 
         dplyr::transmute(wp = as.character(wp),
                          activity = as.character(activity),
                          start_date = zoo::as.Date(start_date_yearmon, frac = 0),
-                         end_date = zoo::as.Date(end_date_yearmon, frac = 1))
+                         end_date = zoo::as.Date(end_date_yearmon, frac = 1),
+                         contingency_end = zoo::as.Date(contingency_end_yearmon, frac = 1))
     }
   }
   
@@ -99,22 +104,30 @@ ganttrify <- function(project,
     df <-  project %>% 
       dplyr::mutate(start_date = as.Date(start_date),
                     end_date = as.Date(end_date),
+                    contingency_end = as.Date(contingency_end),
                     wp = as.character(wp),
                     activity = as.character(activity))
     
     df_yearmon <- df %>% 
       dplyr::mutate(start_date = zoo::as.Date(zoo::as.yearmon(start_date), frac = 0),
-                    end_date = zoo::as.Date(zoo::as.yearmon(end_date), frac = 1))
+                    end_date = zoo::as.Date(zoo::as.yearmon(end_date), frac = 1),
+                    contingency_end = zoo::as.Date(zoo::as.yearmon(contingency_end), frac = 1))
   } 
-
+  
+  if (all(is.na(df_yearmon[["contingency_end"]]))) {
+    max_date <- max(df_yearmon[["end_date"]])
+  } else {
+    max_date <- max(c(max(df_yearmon[["end_date"]]), 
+                      max(df_yearmon[["contingency_end"]], na.rm = TRUE)))
+  }
   
   sequence_months <- seq.Date(from = min(df_yearmon[["start_date"]]),
-                              to = max(df_yearmon[["end_date"]]),
+                              to = max_date,
                               by = "1 month")
   
   if (length(sequence_months) %% 2 != 0) {
     sequence_months <- seq.Date(from = min(df_yearmon[["start_date"]]),
-                                to = max(df_yearmon[["end_date"]])+1,
+                                to = max_date + 1,
                                 by = "1 month")
   }
   
@@ -126,17 +139,17 @@ ganttrify <- function(project,
                                   end = zoo::as.Date.numeric(date_range_matrix[,2]))
   
   # date breaks in the middle of the month
-  date_breaks <- zoo::as.Date(zoo::as.yearmon(seq.Date(from = min(df_yearmon[["start_date"]]+15),
-                                                       to = max(df_yearmon[["end_date"]]+15),
-                                                       by =paste(month_breaks, "month"))), frac = 0.5)
+  date_breaks <- zoo::as.Date(zoo::as.yearmon(seq.Date(from = min(df_yearmon[["start_date"]] + 15),
+                                                       to = max_date + 15,
+                                                       by = paste(month_breaks, "month"))), frac = 0.5)
   
   
   date_breaks_q <- seq.Date(from = lubridate::floor_date(x = min(df_yearmon[["start_date"]]), unit = "year"),
-                            to = lubridate::ceiling_date(x = max(df_yearmon[["end_date"]]), unit = "year"),
+                            to = lubridate::ceiling_date(x = max_date, unit = "year"),
                             by = "1 quarter")
   
   date_breaks_y <- seq.Date(from = lubridate::floor_date(x = min(df_yearmon[["start_date"]]), unit = "year"),
-                            to = lubridate::ceiling_date(x = max(df_yearmon[["end_date"]]), unit = "year"),
+                            to = lubridate::ceiling_date(x = max_date, unit = "year"),
                             by = "1 year")
   
   df_levels <- rev(df_yearmon %>%
@@ -144,12 +157,17 @@ ganttrify <- function(project,
                      t() %>%
                      as.character() %>%
                      unique())
+  
   if (exact_date==TRUE) {
     df_yearmon_fct <-
       dplyr::bind_rows(activity = df,
                        wp = df %>%
                          dplyr::group_by(wp) %>%
-                         dplyr::summarise(activity = unique(wp), start_date = min(start_date), end_date = max(end_date)), .id = "type") %>%
+                         dplyr::summarise(activity = unique(wp), 
+                                          start_date = min(start_date), 
+                                          end_date = max(end_date),
+                                          contingency_end = max(contingency_end, na.rm = TRUE)), 
+                       .id = "type") %>%
       dplyr::mutate(activity = factor(x = activity, levels = df_levels)) %>%
       dplyr::arrange(activity)
     
@@ -158,7 +176,11 @@ ganttrify <- function(project,
       dplyr::bind_rows(activity = df_yearmon,
                        wp = df_yearmon %>%
                          dplyr::group_by(wp) %>%
-                         dplyr::summarise(activity = unique(wp), start_date = min(start_date), end_date = max(end_date)), .id = "type") %>%
+                         dplyr::summarise(activity = unique(wp), 
+                                          start_date = min(start_date), 
+                                          end_date = max(end_date),
+                                          contingency_end = max(contingency_end, na.rm = TRUE)), 
+                       .id = "type") %>%
       dplyr::mutate(activity = factor(x = activity, levels = df_levels)) %>%
       dplyr::arrange(activity)
   }
@@ -212,6 +234,50 @@ ganttrify <- function(project,
                           lineend = line_end,
                           size = size_wp,
                           alpha = df_yearmon_fct$wp_alpha)
+
+  
+  df_yearmon_fct_activity <- dplyr::filter(df_yearmon_fct, grepl("activity", type))
+  df_yearmon_fct_wp <- dplyr::filter(df_yearmon_fct, grepl("wp", type)) |> 
+    dplyr::filter(!is.infinite(contingency_end))
+  
+  gg_gantt <- suppressWarnings(
+    gg_gantt +  
+      ggplot2::geom_segment(data = df_yearmon_fct_activity,
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                                                   y = activity,
+                                                   xend = contingency_end,
+                                                   yend = activity,
+                                                   colour = wp),
+                            lineend = line_end,
+                            size = size_activity,
+                            alpha = df_yearmon_fct_activity$activity_alpha) + 
+      ggplot2::geom_segment(data = df_yearmon_fct_activity,
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                                                   y = activity,
+                                                   xend = contingency_end,
+                                                   yend = activity),
+                            colour = "white",
+                            lineend = line_end,
+                            size = size_activity - 1,
+                            alpha = df_yearmon_fct_activity$activity_alpha) +  
+      ggplot2::geom_segment(data = df_yearmon_fct_wp,
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                                                   y = activity,
+                                                   xend = contingency_end,
+                                                   yend = activity,
+                                                   colour = wp),
+                            lineend = line_end,
+                            size = size_wp,
+                            alpha = df_yearmon_fct_wp$wp_alpha) + 
+      ggplot2::geom_segment(data = df_yearmon_fct_wp,
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                                                   y = activity,
+                                                   xend = contingency_end,
+                                                   yend = activity),
+                            colour = "white",
+                            lineend = line_end,
+                            size = size_wp - 1,
+                            alpha = df_yearmon_fct_wp$wp_alpha) ) 
   
   if (month_number_label==TRUE&month_date_label==TRUE) {
     gg_gantt <- gg_gantt +
@@ -252,18 +318,19 @@ ganttrify <- function(project,
   }
   
   
-  gg_gantt <- suppressWarnings(gg_gantt +
-    ggplot2::scale_y_discrete("") +
-    ggplot2::theme_minimal() +
-    ggplot2::scale_colour_manual(values = colour_palette) +
-    ggplot2::theme(text = ggplot2::element_text(family = font_family),
-                   axis.text.y.left = ggplot2::element_text(face = ifelse(test = df_yearmon_fct %>%
-                                                                            dplyr::distinct(activity, wp, type) %>%
-                                                                            dplyr::pull(type)=="wp", yes = "bold", no = "plain"),
-                                                            size = ggplot2::rel(size_text_relative),
-                                                            hjust = axis_text_align_n),
-                   axis.text.x = ggplot2::element_text(size = ggplot2::rel(size_text_relative)),
-                   legend.position = "none"))
+  gg_gantt <- suppressWarnings(
+    gg_gantt +
+      ggplot2::scale_y_discrete("") +
+      ggplot2::theme_minimal() +
+      ggplot2::scale_colour_manual(values = colour_palette) +
+      ggplot2::theme(text = ggplot2::element_text(family = font_family),
+                     axis.text.y.left = ggplot2::element_text(face = ifelse(test = df_yearmon_fct %>%
+                                                                              dplyr::distinct(activity, wp, type) %>%
+                                                                              dplyr::pull(type)=="wp", yes = "bold", no = "plain"),
+                                                              size = ggplot2::rel(size_text_relative),
+                                                              hjust = axis_text_align_n),
+                     axis.text.x = ggplot2::element_text(size = ggplot2::rel(size_text_relative)),
+                     legend.position = "none"))
   
   if (is.null(spots)==FALSE) {
     if (is.data.frame(spots)==TRUE) {
@@ -295,7 +362,7 @@ ganttrify <- function(project,
                           wp = NA)
         }
       }
-
+      
       
       gg_gantt <- gg_gantt +
         ggplot2::geom_label(data = spots_date, 
