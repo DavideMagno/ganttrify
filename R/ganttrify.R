@@ -47,6 +47,8 @@ ganttrify <- function(project,
                       hide_wp = FALSE,
                       size_activity = 4,
                       size_text_relative = 1,
+                      lag_activity = 3,
+                      lag_wp = 4,
                       month_number_label = TRUE,
                       month_date_label = TRUE,
                       x_axis_position = "top",
@@ -57,7 +59,7 @@ ganttrify <- function(project,
                       month_breaks = 1, 
                       show_vertical_lines = TRUE,
                       axis_text_align = "right") {
-  
+
   # repeat colours if not enough colours given
   if (length(unique(project$wp))>length(as.character(wesanderson::wes_palette("Darjeeling1")))) {
     colour_palette <- rep(colour_palette, length(unique(project$wp)))[1:length(unique(project$wp))]
@@ -238,12 +240,13 @@ ganttrify <- function(project,
   
   df_yearmon_fct_activity <- dplyr::filter(df_yearmon_fct, grepl("activity", type))
   df_yearmon_fct_wp <- dplyr::filter(df_yearmon_fct, grepl("wp", type)) |> 
-    dplyr::filter(!is.infinite(contingency_end))
+    dplyr::filter(!is.infinite(contingency_end)) |> 
+    dplyr::filter(end_date < contingency_end)
   
   gg_gantt <- suppressWarnings(
     gg_gantt +  
       ggplot2::geom_segment(data = df_yearmon_fct_activity,
-                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(lag_activity),
                                                    y = activity,
                                                    xend = contingency_end,
                                                    yend = activity,
@@ -252,7 +255,7 @@ ganttrify <- function(project,
                             size = size_activity,
                             alpha = df_yearmon_fct_activity$activity_alpha) + 
       ggplot2::geom_segment(data = df_yearmon_fct_activity,
-                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(lag_activity),
                                                    y = activity,
                                                    xend = contingency_end,
                                                    yend = activity),
@@ -261,7 +264,7 @@ ganttrify <- function(project,
                             size = size_activity - 1,
                             alpha = df_yearmon_fct_activity$activity_alpha) +  
       ggplot2::geom_segment(data = df_yearmon_fct_wp,
-                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(lag_wp),
                                                    y = activity,
                                                    xend = contingency_end,
                                                    yend = activity,
@@ -270,7 +273,7 @@ ganttrify <- function(project,
                             size = size_wp,
                             alpha = df_yearmon_fct_wp$wp_alpha) + 
       ggplot2::geom_segment(data = df_yearmon_fct_wp,
-                            mapping = ggplot2::aes(x = end_date + lubridate::days(3),
+                            mapping = ggplot2::aes(x = end_date + lubridate::days(lag_wp),
                                                    y = activity,
                                                    xend = contingency_end,
                                                    yend = activity),
